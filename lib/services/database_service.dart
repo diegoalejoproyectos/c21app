@@ -204,7 +204,7 @@ class DatabaseService {
 
       // Probar con una consulta simple (usando dynamic para evitar dependencia directa)
       // En IO esto es un PostgreSQLConnection, en Web lanzará error antes de llegar aquí
-      await connection.query('SELECT 1');
+      await connection.execute('SELECT 1');
 
       // Cerrar conexión
       await connection.close();

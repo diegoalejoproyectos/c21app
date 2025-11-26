@@ -111,7 +111,48 @@ class _ExportarDatosScreenState extends State<ExportarDatosScreen> {
         }
       }
 
-      // Procesar cada código
+      // Procesar cada código (limitado a 50 para evitar "Too many pages")
+      const maxCodigosPorPdf = 50;
+      if (codigosAProcesar.length > maxCodigosPorPdf) {
+        if (mounted) {
+          final continuar = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Muchos códigos'),
+              content: Text(
+                'Se encontraron ${codigosAProcesar.length} códigos. '
+                'Solo se procesarán los primeros $maxCodigosPorPdf para evitar errores. '
+                '¿Desea continuar?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancelar'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Continuar'),
+                ),
+              ],
+            ),
+          );
+
+          if (continuar != true) {
+            throw Exception('Operación cancelada por el usuario');
+          }
+        }
+        codigosAProcesar = codigosAProcesar.take(maxCodigosPorPdf).toList();
+      }
+
+      // Mostrar progreso
+      if (mounted) {
+        _mostrarMensaje(
+          context,
+          'Procesando ${codigosAProcesar.length} códigos...',
+          Colors.blue,
+        );
+      }
+
       for (final codigo in codigosAProcesar) {
         await pdfService.agregarReporte(codigo);
       }

@@ -200,6 +200,9 @@ class PagoMatriz {
       'COD_PAGO',
       'codigo_pago',
       'Código Pago',
+      'rubro',
+      'Rubro',
+      'RUBRO',
     ]);
 
     final detalleRaw = findValue(map, [

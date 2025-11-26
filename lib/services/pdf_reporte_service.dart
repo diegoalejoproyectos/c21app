@@ -35,13 +35,23 @@ class PdfReporteService {
       throw Exception('No hay reportes para generar');
     }
 
-    // Cargar fuentes con soporte Unicode
-    final fontRegular = await PdfGoogleFonts.robotoRegular();
-    final fontBold = await PdfGoogleFonts.robotoBold();
+    // Intentar cargar fuentes con soporte Unicode, con fallback a fuentes por defecto
+    pw.Document pdf;
+    try {
+      // Cargar fuentes con soporte Unicode
+      final fontRegular = await PdfGoogleFonts.notoSansRegular();
+      final fontBold = await PdfGoogleFonts.notoSansBold();
 
-    final pdf = pw.Document(
-      theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
-    );
+      pdf = pw.Document(
+        theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+      );
+      print('✅ Fuentes Unicode cargadas correctamente');
+    } catch (e) {
+      // Si falla, usar fuentes por defecto y confiar en la sanitización
+      print('⚠️ No se pudieron cargar fuentes Unicode: $e');
+      print('📝 Usando fuentes por defecto con sanitización de texto');
+      pdf = pw.Document();
+    }
 
     // Generar una página por cada reporte
     for (final reporte in _reportes) {
