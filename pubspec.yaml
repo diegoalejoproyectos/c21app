@@ -47,7 +47,12 @@ dependencies:
   path: ^1.8.3
   
   # PostgreSQL (para conexión remota)
-  postgres: ^2.6.2
+  postgres: ^3.1.0
+  
+  # PDF generation
+  pdf: ^3.10.7
+  printing: ^5.12.0
+  path_provider: ^2.1.2
 
 dev_dependencies:
   flutter_test:

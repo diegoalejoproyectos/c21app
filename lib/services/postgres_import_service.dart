@@ -1,119 +1,26 @@
 // services/postgres_import_service.dart
 import 'package:postgres/postgres.dart';
-import '../models/movimiento_bancario.dart';
 import '../models/database_config.dart';
+import '../models/import_result.dart';
 
+/// Servicio genérico para importar datos a PostgreSQL
+///
+/// Utiliza el patrón Strategy para trabajar con cualquier tipo de dato
 class PostgresImportService {
-  /// Convierte datos importados a objetos MovimientoBancario
-  static List<MovimientoBancario> parseMovimientosBancarios(
-    List<Map<String, dynamic>> datosImportados,
-  ) {
-    print('🔄 Parseando ${datosImportados.length} registros...');
-    final movimientos = <MovimientoBancario>[];
-    int successCount = 0, errorCount = 0;
-
-    for (int i = 0; i < datosImportados.length; i++) {
-      try {
-        final movimiento = MovimientoBancario.fromMap(datosImportados[i]);
-        movimientos.add(movimiento);
-        successCount++;
-
-        if (i == 0) {
-          print('✅ Primer movimiento parseado: ${movimiento.toString()}');
-        }
-      } catch (e) {
-        errorCount++;
-        print('❌ Error parseando fila $i: $e');
-        print('Datos de la fila: ${datosImportados[i]}');
-      }
-    }
-
-    print('📊 Parseo completado: $successCount éxitos, $errorCount errores');
-    return movimientos;
-  }
-
-  /// Validación estricta de movimientos
-  static List<ValidationError> validarMovimientos(
-    List<MovimientoBancario> movimientos,
-  ) {
-    print('🔍 Validando ${movimientos.length} movimientos...');
-    final errors = <ValidationError>[];
-
-    for (int i = 0; i < movimientos.length; i++) {
-      final mov = movimientos[i];
-
-      if (mov.codigo <= 0) {
-        errors.add(
-          ValidationError(
-            row: i + 1,
-            field: 'codigo',
-            message: 'Código debe ser mayor a 0',
-          ),
-        );
-      }
-      if (mov.depto.isEmpty) {
-        errors.add(
-          ValidationError(
-            row: i + 1,
-            field: 'depto',
-            message: 'Departamento no puede estar vacío',
-          ),
-        );
-      }
-      if (mov.detalle.isEmpty) {
-        errors.add(
-          ValidationError(
-            row: i + 1,
-            field: 'detalle',
-            message: 'Detalle no puede estar vacío',
-          ),
-        );
-      }
-      if (mov.monto == 0) {
-        errors.add(
-          ValidationError(
-            row: i + 1,
-            field: 'monto',
-            message: 'Monto no puede ser 0',
-          ),
-        );
-      }
-    }
-
-    print('📊 Validación completada: ${errors.length} errores encontrados');
-    return errors;
-  }
-
-  /// Validación relajada solo para debugging
-  static List<ValidationError> validarMovimientosRelajada(
-    List<MovimientoBancario> movimientos,
-  ) {
-    print('🔍 Validación RELAJADA de ${movimientos.length} movimientos...');
-    final errors = <ValidationError>[];
-
-    for (int i = 0; i < movimientos.length; i++) {
-      final mov = movimientos[i];
-      if (mov.codigo <= 0) {
-        errors.add(
-          ValidationError(
-            row: i + 1,
-            field: 'codigo',
-            message: 'Código debe ser mayor a 0',
-          ),
-        );
-      }
-    }
-
-    print(
-      '📊 Validación relajada completada: ${errors.length} errores encontrados',
-    );
-    return errors;
-  }
-
-  /// Importación simple (solo inserción)
-  static Future<ImportResult> importarMovimientosBancarios({
-    required List<MovimientoBancario> movimientos,
+  /// Importa datos a PostgreSQL usando UPSERT (INSERT ... ON CONFLICT DO UPDATE)
+  ///
+  /// [items] - Lista de objetos a importar
+  /// [config] - Configuración de conexión a PostgreSQL
+  /// [tableName] - Nombre de la tabla destino
+  /// [conflictColumns] - Columnas que definen un conflicto (para ON CONFLICT)
+  /// [toMapFunction] - Función para convertir cada item a Map
+  /// Returns resultado de la importación con contadores
+  static Future<ImportResult> importarConUpsert<T>({
+    required List<T> items,
     required DatabaseConfig config,
+    required String tableName,
+    required List<String> conflictColumns,
+    required Map<String, dynamic> Function(T) toMapFunction,
   }) async {
     if (!config.useRemoteDatabase) {
       return ImportResult(
@@ -123,163 +30,135 @@ class PostgresImportService {
       );
     }
 
-    PostgreSQLConnection? connection;
-    int insertedRows = 0, errorRows = 0;
-
-    try {
-      connection = PostgreSQLConnection(
-        config.host,
-        config.port,
-        config.databaseName,
-        username: config.username,
-        password: config.password,
-      );
-
-      await connection.open();
-      print('🔗 Conexión establecida a PostgreSQL');
-
-      const insertQuery = '''
-        INSERT INTO movimientos_bancarios
-        (codigo, fecha, depto, detalle, ref_bancaria, monto)
-        VALUES (@codigo, @fecha, @depto, @detalle, @ref_bancaria, @monto)
-      ''';
-
-      for (int i = 0; i < movimientos.length; i++) {
-        try {
-          await connection.execute(
-            insertQuery,
-            substitutionValues: {
-              'codigo': movimientos[i].codigo,
-              'fecha': movimientos[i].fecha,
-              'depto': movimientos[i].depto,
-              'detalle': movimientos[i].detalle,
-              'ref_bancaria': movimientos[i].refBancaria,
-              'monto': movimientos[i].monto,
-            },
-          );
-          insertedRows++;
-        } catch (e) {
-          errorRows++;
-          print('❌ Error insertando fila ${i + 1}: $e');
-        }
-      }
-
-      print(
-        '✅ Importación completada: $insertedRows insertados, $errorRows errores',
-      );
-      return ImportResult(
-        success: true,
-        message:
-            'Se importaron $insertedRows de ${movimientos.length} registros',
-        insertedRows: insertedRows,
-      );
-    } catch (e) {
+    if (items.isEmpty) {
       return ImportResult(
         success: false,
-        message: 'Error: $e',
-        insertedRows: insertedRows,
+        message: 'No hay datos para importar',
+        insertedRows: 0,
       );
-    } finally {
-      await connection?.close();
-      print('🔒 Conexión cerrada');
     }
-  }
 
-  /// UPSERT: Inserta nuevos o actualiza existentes
-  static Future<ImportResult> importarMovimientosConUpsert({
-    required List<MovimientoBancario> movimientos,
-    required DatabaseConfig config,
-  }) async {
-    PostgreSQLConnection? connection;
-    int insertados = 0, actualizados = 0;
+    Connection? connection;
+    int insertados = 0, actualizados = 0, errores = 0;
 
     try {
-      connection = PostgreSQLConnection(
-        config.host,
-        config.port,
-        config.databaseName,
-        username: config.username,
-        password: config.password,
+      connection = await Connection.open(
+        Endpoint(
+          host: config.host,
+          port: config.port,
+          database: config.databaseName,
+          username: config.username,
+          password: config.password,
+        ),
+        settings: const ConnectionSettings(sslMode: SslMode.disable),
       );
+      print('🔗 [PostgresImport] Conexión establecida a PostgreSQL');
+      print('📊 [PostgresImport] Tabla: $tableName, Items: ${items.length}');
 
-      await connection.open();
-      print('🔗 Conexión establecida a PostgreSQL (UPSERT)');
+      // Obtener el primer item para construir la query
+      final firstMap = toMapFunction(items.first);
+      final columns = firstMap.keys.where((k) => k != 'id').toList();
 
-      const upsertQuery = '''
-        INSERT INTO movimientos_bancarios (
-          codigo, fecha, depto, detalle, ref_bancaria, monto
-        ) VALUES (
-          @codigo, @fecha, @depto, @detalle, @ref_bancaria, @monto
-        )
-        ON CONFLICT (codigo, fecha, ref_bancaria)
-        DO UPDATE SET
-          depto = EXCLUDED.depto,
-          detalle = EXCLUDED.detalle,
-          monto = EXCLUDED.monto
+      // Construir query UPSERT dinámicamente
+      final columnsList = columns.join(', ');
+      final valuesList = columns.map((c) => '@$c').join(', ');
+      final updateList = columns
+          .where((c) => !conflictColumns.contains(c))
+          .map((c) => '$c = EXCLUDED.$c')
+          .join(', ');
+      final conflictList = conflictColumns.join(', ');
+
+      final upsertQuery =
+          '''
+        INSERT INTO $tableName ($columnsList)
+        VALUES ($valuesList)
+        ON CONFLICT ($conflictList)
+        DO UPDATE SET $updateList
         RETURNING xmax = 0 AS inserted;
       ''';
 
-      for (final m in movimientos) {
-        final result = await connection.query(
-          upsertQuery,
-          substitutionValues: {
-            'codigo': m.codigo,
-            'fecha': m.fecha,
-            'depto': m.depto,
-            'detalle': m.detalle,
-            'ref_bancaria': m.refBancaria,
-            'monto': m.monto,
-          },
-        );
+      print('🔍 [PostgresImport] Query generada:');
+      print(upsertQuery);
 
-        final inserted = result.first[0] as bool;
-        inserted ? insertados++ : actualizados++;
+      // Ejecutar UPSERT para cada item
+      for (int i = 0; i < items.length; i++) {
+        try {
+          final map = toMapFunction(items[i]);
+
+          // Remover el ID si existe (será auto-generado)
+          map.remove('id');
+
+          final result = await connection.execute(
+            Sql.named(upsertQuery),
+            parameters: map,
+          );
+
+          final inserted = result.first[0] as bool;
+          inserted ? insertados++ : actualizados++;
+
+          if (i == 0) {
+            print('✅ [PostgresImport] Primer item procesado correctamente');
+          }
+        } catch (e) {
+          errores++;
+          print('❌ [PostgresImport] Error en item ${i + 1}: $e');
+        }
       }
+
+      print('✅ [PostgresImport] Importación completada:');
+      print('   - Insertados: $insertados');
+      print('   - Actualizados: $actualizados');
+      print('   - Errores: $errores');
 
       return ImportResult(
         success: true,
         message:
-            "inserción completada: $insertados nuevos, $actualizados actualizados",
+            'Importación completada: $insertados nuevos, $actualizados actualizados',
         insertedRows: insertados,
+        updatedRows: actualizados,
+        skippedRows: errores,
       );
     } catch (e) {
+      print('❌ [PostgresImport] Error durante importación: $e');
       return ImportResult(
         success: false,
-        message: "Error de inserción: $e",
+        message: 'Error de importación: $e',
         insertedRows: insertados,
+        updatedRows: actualizados,
+        skippedRows: errores,
       );
     } finally {
       await connection?.close();
-      print('🔒 Conexión cerrada (inserción)');
+      print('🔒 [PostgresImport] Conexión cerrada');
     }
   }
-}
 
-/// Resultado de importación
-class ImportResult {
-  final bool success;
-  final String message;
-  final int insertedRows;
+  /// Verifica la conexión a PostgreSQL
+  static Future<bool> verificarConexion(DatabaseConfig config) async {
+    if (!config.useRemoteDatabase) {
+      return false;
+    }
 
-  ImportResult({
-    required this.success,
-    required this.message,
-    required this.insertedRows,
-  });
-}
+    Connection? connection;
 
-/// Error de validación
-class ValidationError {
-  final int row;
-  final String field;
-  final String message;
-
-  ValidationError({
-    required this.row,
-    required this.field,
-    required this.message,
-  });
-
-  @override
-  String toString() => 'Fila $row, Campo $field: $message';
+    try {
+      connection = await Connection.open(
+        Endpoint(
+          host: config.host,
+          port: config.port,
+          database: config.databaseName,
+          username: config.username,
+          password: config.password,
+        ),
+        settings: const ConnectionSettings(sslMode: SslMode.disable),
+      );
+      await connection.execute('SELECT 1');
+      return true;
+    } catch (e) {
+      print('❌ [PostgresImport] Error de conexión: $e');
+      return false;
+    } finally {
+      await connection?.close();
+    }
+  }
 }

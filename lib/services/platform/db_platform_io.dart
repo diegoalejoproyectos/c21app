@@ -21,14 +21,16 @@ class DbPlatformIO implements DbPlatform {
     required String username,
     required String password,
   }) async {
-    final connection = PostgreSQLConnection(
-      host,
-      port,
-      database,
-      username: username,
-      password: password,
+    final connection = await Connection.open(
+      Endpoint(
+        host: host,
+        port: port,
+        database: database,
+        username: username,
+        password: password,
+      ),
+      settings: const ConnectionSettings(sslMode: SslMode.disable),
     );
-    await connection.open();
     return connection;
   }
 }

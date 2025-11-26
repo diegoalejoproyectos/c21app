@@ -4,18 +4,39 @@
 /// - CSV: Exporta los datos en formato CSV (valores separados por comas)
 /// - Excel: Exporta los datos en formato Excel (.xlsx)
 /// - JSON: Exporta los datos en formato JSON
+/// - PDF: Exporta los datos en formato PDF con agrupación por código
 library;
+
 import 'package:flutter/material.dart';
+import '../services/pdf_reporte_service.dart';
+import '../services/pago_repository.dart';
 
 /// Widget de la pantalla de exportación de datos
-///
-/// Proporciona tres botones para diferentes formatos de exportación
-class ExportarDatosScreen extends StatelessWidget {
+class ExportarDatosScreen extends StatefulWidget {
   const ExportarDatosScreen({super.key});
 
+  @override
+  State<ExportarDatosScreen> createState() => _ExportarDatosScreenState();
+}
+
+class _ExportarDatosScreenState extends State<ExportarDatosScreen> {
+  final TextEditingController _codigoDesdeController = TextEditingController();
+  final TextEditingController _codigoHastaController = TextEditingController();
+  final TextEditingController _numeroReporteController = TextEditingController(
+    text: '1385',
+  );
+
+  bool _generandoPdf = false;
+
+  @override
+  void dispose() {
+    _codigoDesdeController.dispose();
+    _codigoHastaController.dispose();
+    _numeroReporteController.dispose();
+    super.dispose();
+  }
+
   /// Exporta los datos a formato CSV
-  ///
-  /// Muestra un mensaje de confirmación al usuario
   void _exportarCSV(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -26,8 +47,6 @@ class ExportarDatosScreen extends StatelessWidget {
   }
 
   /// Exporta los datos a formato Excel
-  ///
-  /// Muestra un mensaje de confirmación al usuario
   void _exportarExcel(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -38,13 +57,95 @@ class ExportarDatosScreen extends StatelessWidget {
   }
 
   /// Exporta los datos a formato JSON
-  ///
-  /// Muestra un mensaje de confirmación al usuario
   void _exportarJSON(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Exportando datos a JSON...'),
         backgroundColor: Color(0xFF42A5F5),
+      ),
+    );
+  }
+
+  /// Exporta los datos a formato PDF con agrupación por código
+  Future<void> _exportarPDF(BuildContext context) async {
+    setState(() {
+      _generandoPdf = true;
+    });
+
+    try {
+      // Validar número de reporte
+      final numeroReporte = int.tryParse(_numeroReporteController.text) ?? 1385;
+
+      // Parsear códigos desde/hasta
+      final codigoDesde = _codigoDesdeController.text.isEmpty
+          ? null
+          : int.tryParse(_codigoDesdeController.text);
+      final codigoHasta = _codigoHastaController.text.isEmpty
+          ? null
+          : int.tryParse(_codigoHastaController.text);
+
+      final pdfService = PdfReporteService();
+      List<int> codigosAProcesar = [];
+
+      // Obtener códigos disponibles
+      final codigosDisponibles =
+          await PagoRepository.obtenerCodigosDisponibles();
+
+      if (codigoDesde != null && codigoHasta != null) {
+        // Filtrar códigos en el rango
+        codigosAProcesar = codigosDisponibles
+            .where((c) => c >= codigoDesde && c <= codigoHasta)
+            .toList();
+
+        if (codigosAProcesar.isEmpty) {
+          throw Exception(
+            'No hay códigos con datos en el rango seleccionado ($codigoDesde - $codigoHasta)',
+          );
+        }
+      } else {
+        // Usar todos los códigos disponibles
+        codigosAProcesar = codigosDisponibles;
+
+        if (codigosAProcesar.isEmpty) {
+          throw Exception('No hay datos disponibles para generar el reporte');
+        }
+      }
+
+      // Procesar cada código
+      for (final codigo in codigosAProcesar) {
+        await pdfService.agregarReporte(codigo);
+      }
+
+      // Generar PDF
+      final filePath = await pdfService.generarPdf(
+        numeroReporte: numeroReporte,
+      );
+
+      if (mounted) {
+        _mostrarMensaje(context, 'PDF generado correctamente', Colors.green);
+
+        // Abrir vista previa
+        await PdfReporteService.previsualizarPdf(filePath);
+      }
+    } catch (e) {
+      if (mounted) {
+        _mostrarMensaje(context, 'Error al generar PDF: $e', Colors.red);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _generandoPdf = false;
+        });
+      }
+    }
+  }
+
+  void _mostrarMensaje(BuildContext context, String mensaje, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -58,11 +159,10 @@ class ExportarDatosScreen extends StatelessWidget {
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
       ),
-      body: Center(
+      body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
@@ -70,7 +170,126 @@ class ExportarDatosScreen extends StatelessWidget {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 30),
+
+              // Sección de PDF con configuración
+              Card(
+                elevation: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.picture_as_pdf,
+                            color: Colors.red,
+                            size: 28,
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Exportar a PDF',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Número de reporte
+                      TextField(
+                        controller: _numeroReporteController,
+                        decoration: const InputDecoration(
+                          labelText: 'Número de Reporte',
+                          hintText: 'Ej: 1385',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.numbers),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Rango de códigos
+                      const Text(
+                        'Rango de códigos (opcional):',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _codigoDesdeController,
+                              decoration: const InputDecoration(
+                                labelText: 'Desde',
+                                hintText: 'Código inicial',
+                                border: OutlineInputBorder(),
+                              ),
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: TextField(
+                              controller: _codigoHastaController,
+                              decoration: const InputDecoration(
+                                labelText: 'Hasta',
+                                hintText: 'Código final',
+                                border: OutlineInputBorder(),
+                              ),
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Botón generar PDF
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _generandoPdf
+                              ? null
+                              : () => _exportarPDF(context),
+                          icon: _generandoPdf
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.picture_as_pdf, size: 28),
+                          label: Text(
+                            _generandoPdf ? 'Generando PDF...' : 'Generar PDF',
+                            style: const TextStyle(fontSize: 18),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 20),
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 30),
+
+              // Otros formatos
+              const Text(
+                'Otros formatos:',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
 
               // Botón Exportar CSV
               ElevatedButton.icon(
@@ -86,7 +305,7 @@ class ExportarDatosScreen extends StatelessWidget {
                   foregroundColor: Colors.white,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
               // Botón Exportar Excel
               ElevatedButton.icon(
@@ -102,7 +321,7 @@ class ExportarDatosScreen extends StatelessWidget {
                   foregroundColor: Colors.white,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
               // Botón Exportar JSON
               ElevatedButton.icon(
