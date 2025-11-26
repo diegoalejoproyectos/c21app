@@ -7,6 +7,114 @@ import '../models/import_result.dart';
 ///
 /// Utiliza el patrón Strategy para trabajar con cualquier tipo de dato
 class PostgresImportService {
+  /// Importa datos a PostgreSQL usando INSERT simple (sin UPSERT)
+  ///
+  /// [items] - Lista de objetos a importar
+  /// [config] - Configuración de conexión a PostgreSQL
+  /// [tableName] - Nombre de la tabla destino
+  /// [toMapFunction] - Función para convertir cada item a Map
+  /// Returns resultado de la importación con contadores
+  static Future<ImportResult> importarConInsert<T>({
+    required List<T> items,
+    required DatabaseConfig config,
+    required String tableName,
+    required Map<String, dynamic> Function(T) toMapFunction,
+  }) async {
+    if (!config.useRemoteDatabase) {
+      return ImportResult(
+        success: false,
+        message: 'Modo PostgreSQL no habilitado',
+        insertedRows: 0,
+      );
+    }
+
+    if (items.isEmpty) {
+      return ImportResult(
+        success: false,
+        message: 'No hay datos para importar',
+        insertedRows: 0,
+      );
+    }
+
+    Connection? connection;
+    int insertados = 0, errores = 0;
+
+    try {
+      connection = await Connection.open(
+        Endpoint(
+          host: config.host,
+          port: config.port,
+          database: config.databaseName,
+          username: config.username,
+          password: config.password,
+        ),
+        settings: const ConnectionSettings(sslMode: SslMode.disable),
+      );
+      print('🔗 [PostgresImport] Conexión establecida a PostgreSQL');
+      print('📊 [PostgresImport] Tabla: $tableName, Items: ${items.length}');
+
+      // Obtener el primer item para construir la query
+      final firstMap = toMapFunction(items.first);
+      final columns = firstMap.keys.where((k) => k != 'id').toList();
+
+      // Construir query INSERT dinámicamente
+      final columnsList = columns.join(', ');
+      final valuesList = columns.map((c) => '@$c').join(', ');
+
+      final insertQuery =
+          '''
+        INSERT INTO $tableName ($columnsList)
+        VALUES ($valuesList)
+      ''';
+
+      print('🔍 [PostgresImport] Query generada:');
+      print(insertQuery);
+
+      // Ejecutar INSERT para cada item
+      for (int i = 0; i < items.length; i++) {
+        try {
+          final map = toMapFunction(items[i]);
+
+          // Remover el ID si existe (será auto-generado)
+          map.remove('id');
+
+          await connection.execute(Sql.named(insertQuery), parameters: map);
+
+          insertados++;
+
+          if (i == 0) {
+            print('✅ [PostgresImport] Primer item procesado correctamente');
+          }
+        } catch (e) {
+          errores++;
+          print('❌ [PostgresImport] Error en item ${i + 1}: $e');
+        }
+      }
+
+      print('✅ [PostgresImport] Importación completada:');
+      print('   - Insertados: $insertados');
+      print('   - Errores: $errores');
+
+      return ImportResult(
+        success: true,
+        message: 'Importación completada: $insertados nuevos',
+        insertedRows: insertados,
+        skippedRows: errores,
+      );
+    } catch (e) {
+      print('❌ [PostgresImport] Error durante importación: $e');
+      return ImportResult(
+        success: false,
+        message: 'Error de importación: $e',
+        insertedRows: insertados,
+        skippedRows: errores,
+      );
+    } finally {
+      await connection?.close();
+      print('🔒 [PostgresImport] Conexión cerrada');
+    }
+  }
+
   /// Importa datos a PostgreSQL usando UPSERT (INSERT ... ON CONFLICT DO UPDATE)
   ///
   /// [items] - Lista de objetos a importar

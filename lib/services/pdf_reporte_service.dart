@@ -35,7 +35,13 @@ class PdfReporteService {
       throw Exception('No hay reportes para generar');
     }
 
-    final pdf = pw.Document();
+    // Cargar fuentes con soporte Unicode
+    final fontRegular = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+    );
 
     // Generar una página por cada reporte
     for (final reporte in _reportes) {
@@ -53,7 +59,7 @@ class PdfReporteService {
     final output = await getApplicationDocumentsDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final file = File(
-      '${output.path}/reporte_c21_$numeroReporte\_$timestamp.pdf',
+      '${output.path}/reporte_c21_${numeroReporte}_$timestamp.pdf',
     );
     await file.writeAsBytes(await pdf.save());
 

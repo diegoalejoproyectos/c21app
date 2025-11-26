@@ -201,12 +201,11 @@ class _ImportarDatosScreenState extends State<ImportarDatosScreen> {
       print('📊 [Screen] Items a enviar: ${_datosParsed.length}');
       print('📋 [Screen] Tabla destino: ${_estrategiaActual!.tableName}');
 
-      // 1. Enviar a PostgreSQL usando la estrategia
-      final resultadoPostgres = await PostgresImportService.importarConUpsert(
+      // 1. Enviar a PostgreSQL usando INSERT simple
+      final resultadoPostgres = await PostgresImportService.importarConInsert(
         items: _datosParsed,
         config: config,
         tableName: _estrategiaActual!.tableName,
-        conflictColumns: _estrategiaActual!.conflictColumns,
         toMapFunction: _estrategiaActual!.toMap,
       );
 

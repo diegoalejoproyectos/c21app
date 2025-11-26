@@ -7,6 +7,14 @@ import '../models/reporte_models.dart';
 import '../models/database_config.dart';
 
 class PagoRepository {
+  /// Convierte un valor dinámico (String o num) a double
+  static double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
   /// Obtiene el reporte completo para un código
   static Future<ReporteIndividual> obtenerReporteCompleto(int codigo) async {
     final connection = await _getConnection();
@@ -66,7 +74,7 @@ class PagoRepository {
     return result.map((row) {
       return ResumenPago(
         codPago: row[0].toString(),
-        totalMonto: (row[1] as num?)?.toDouble() ?? 0.0,
+        totalMonto: _toDouble(row[1]),
       );
     }).toList();
   }
@@ -119,12 +127,12 @@ class PagoRepository {
         nombres: row[7] as String,
         codPago: row[8] as int,
         detalle: row[9] as String,
-        montoTotal: (row[10] as num).toDouble(),
+        montoTotal: _toDouble(row[10]),
         objeto: row[11] as String,
         volteos: row[12] as String,
-        montoSiscoin: (row[13] as num).toDouble(),
-        montoExtracto: (row[14] as num).toDouble(),
-        diferenciaMonto: (row[15] as num).toDouble(),
+        montoSiscoin: _toDouble(row[13]),
+        montoExtracto: _toDouble(row[14]),
+        diferenciaMonto: _toDouble(row[15]),
         observacion: row[16] as String?,
       );
     }).toList();
@@ -155,7 +163,7 @@ class PagoRepository {
         depto: row[3] as String,
         detalle: row[4] as String,
         refBancaria: row[5] as String,
-        monto: (row[6] as num).toDouble(),
+        monto: _toDouble(row[6]),
       );
     }).toList();
   }
